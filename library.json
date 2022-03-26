@@ -28,7 +28,6 @@
             "base": "examples/demo",
             "files": [
                 "platformio.ini",
-                "data/test.zip",
                 "src/main.cpp"
             ]
         }
