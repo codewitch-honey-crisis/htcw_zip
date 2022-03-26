@@ -1,0 +1,36 @@
+{
+    "name": "htcw_zip",
+    "version": "1.0.0",
+    "description": "Provides zip extraction classes",
+    "keywords": ["stream","io"],
+    "authors": {
+        "name":"honey the codewitch",
+        "homepage": "https://www.codeproject.com/Members/code-witch"
+    },
+    "license": "MIT",
+    "frameworks": "*",
+    "platforms": "*",
+    "build": {
+        "unflags": "-std=gnu++11",
+        "flags": "-std=gnu++14"
+    },
+    "repository":
+    {
+        "type": "git",
+        "url": "https://github.com/codewitch-honey-crisis/htcw_zip.git"
+    },
+    "dependencies": {
+        "codewitch-honey-crisis/htcw_io": "^1.0.7"
+    },
+    "examples": [
+        {
+            "name": "Demo",
+            "base": "examples/demo",
+            "files": [
+                "platformio.ini",
+                "data/test.zip",
+                "src/main.cpp"
+            ]
+        }
+    ]
+}
