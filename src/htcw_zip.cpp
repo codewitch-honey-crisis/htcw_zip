@@ -177,12 +177,13 @@ namespace zip_helpers {
 }
 using namespace zip_helpers;
 namespace zip {
-    extern zip_result inflate(io::stream* in,io::stream* out,long long int in_size,void*(*allocator)(size_t),void(*deallocator)(void*)) {
+    extern zip_result inflate(io::stream* in,archive_write_callback write_callback, void* write_callback_state,long long int in_size,void*(*allocator)(size_t),void(*deallocator)(void*)) {
         struct context final {
             io::stream* in;
             long long int in_pos;
             long long int in_size;
-            io::stream* out;
+            archive_write_callback write_callback;
+            void* write_callback_state;
             long long int out_pos;
             uint8_t out_buffer[32768];
             size_t out_buffer_front;
@@ -214,7 +215,7 @@ namespace zip {
             void write_out(int value) {
                 if(out_buffer_count==32768) {
                     uint8_t b=(uint8_t)pop_out_buffer();
-                    out->write(&b,1);
+                    write_callback(&b,1,write_callback_state);
                 }
                 out_buffer[(out_buffer_front + out_buffer_count++) % 32768] = (uint8_t)value;
                 ++out_pos;
@@ -426,7 +427,7 @@ namespace zip {
                 return zip_result::success;
             }
         };
-        if(nullptr==in || in->caps().read==0 || nullptr==out || out->caps().write==0) {
+        if(nullptr==in || in->caps().read==0 || nullptr==write_callback) {
             return zip_result::invalid_argument;
         }
         zip_result r;
@@ -437,7 +438,8 @@ namespace zip {
         ctx->in = in;
         ctx->in_pos = 0;
         ctx->in_size = in_size;
-        ctx->out = out;
+        ctx->write_callback = write_callback;
+        ctx->write_callback_state = write_callback_state;
         ctx->out_buffer_front = 0;
         ctx->out_buffer_count = 0;
         ctx->out_pos = 0;
@@ -491,7 +493,7 @@ namespace zip {
         } while (!final);
         while(ctx->out_buffer_count!=0) {
             uint8_t b = (uint8_t)ctx->pop_out_buffer();
-            if(1!=ctx->out->write(b)) {
+            if(1!=ctx->write_callback(&b,1,write_callback_state)) {
                 deallocator(ctx);
                 return zip_result::io_error;
             }
@@ -555,7 +557,43 @@ namespace zip {
             }
             return zip_result::success;
         }
-        return inflate(m_stream,out_stream,m_compressed_size,allocator,deallocator);
+        return inflate(m_stream,[](const uint8_t* data,size_t len,void* state) {
+            io::stream* stm = (io::stream*)state;
+            return (size_t)stm->write(data,len);
+        } ,out_stream,m_compressed_size,allocator,deallocator);
+
+    }
+    zip_result archive_entry::extract(archive_write_callback write_callback,void* write_callback_state,void*(*allocator)(size_t),void(*deallocator)(void*)) const {
+        if(nullptr==m_stream) {
+            return zip_result::invalid_state;
+        }
+        if(nullptr==write_callback) {
+            return zip_result::invalid_argument;
+        }
+        m_stream->seek(m_local_header_offset+26,io::seek_origin::start);
+        io::stream_reader_le rdr(m_stream);
+        uint16_t name_len;
+        if(!rdr.read(&name_len)) {
+            return zip_result::invalid_archive;
+        }
+        uint16_t extra_len;
+        if(!rdr.read(&extra_len)) {
+            return zip_result::invalid_archive;
+        }
+        m_stream->seek(name_len+extra_len,io::seek_origin::current);
+        if(0==m_compression_method) {
+            size_t s = m_uncompressed_size;
+            uint8_t buf[512];
+            while(0<s) {
+                size_t r = m_stream->read(buf,512);
+                if(r!=write_callback(buf,r,write_callback_state)) {
+                    return zip_result::io_error;
+                }
+                s-=r;
+            }
+            return zip_result::success;
+        }
+        return inflate(m_stream,write_callback,write_callback_state, m_compressed_size,allocator,deallocator);
     }
 
     zip_result archive::init(io::stream *stream) {
@@ -568,9 +606,9 @@ namespace zip {
         // find the end of central directory record
         uint32_t signature;
         size_t offset;
-
         for (offset = 22;; ++offset) {
             if(offset>UINT16_MAX) {
+                Serial.println("Could not find sig");
                 return zip_result::invalid_archive;
             }
             stream->seek(-offset,io::seek_origin::end);
@@ -584,6 +622,7 @@ namespace zip {
         stream->seek(-offset, io::seek_origin::end);
         io::stream_reader_le rdr(stream);
         if(!rdr.read(&signature)) {
+            //Serial.println("Invalid signature");
             return zip_result::io_error;
         }
         if (signature != 0x06054B50) {
@@ -626,7 +665,7 @@ namespace zip {
                 uint32_t num_disks;
                 rdr.read(&num_disks);
 
-                if (!(signature == 0x07064B50 &&
+                if (!((signature == 0x06064B50) &&
                     eocdr_disk == 0 &&
                     num_disks == 1))
                 {
@@ -654,7 +693,7 @@ namespace zip {
                 rdr.read(&cdr_size64);
                 rdr.read(&u64);
                 m_offset = (long long int)u64;
-                if (!(signature == 0x06064B50 &&
+                if (!((signature == 0x06064B50)&&
                     disk_number64 == 0 &&
                     cdr_disk_number64 == 0 &&
                     disk_num_entries64 == m_entries_size))
