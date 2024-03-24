@@ -605,15 +605,15 @@ namespace zip {
         }
         // find the end of central directory record
         uint32_t signature;
-        size_t offset;
+        long long offset;
         for (offset = 22;; ++offset) {
             if(offset>UINT16_MAX) {
-                Serial.println("Could not find sig");
                 return zip_result::invalid_archive;
             }
             stream->seek(-offset,io::seek_origin::end);
-            if(sizeof(signature)!=stream->read((uint8_t*)&signature,sizeof(signature))) {
-                return zip_result::io_error;
+            size_t s=stream->read((uint8_t*)&signature,sizeof(signature));
+            if(sizeof(signature)!=s) {
+               return zip_result::io_error;
             }
             if (signature == bits::from_le(0x06054B50))
                 break;
@@ -622,8 +622,7 @@ namespace zip {
         stream->seek(-offset, io::seek_origin::end);
         io::stream_reader_le rdr(stream);
         if(!rdr.read(&signature)) {
-            //Serial.println("Invalid signature");
-            return zip_result::io_error;
+           return zip_result::io_error;
         }
         if (signature != 0x06054B50) {
             return zip_result::not_supported;
